@@ -6,17 +6,36 @@ from torchvision import transforms, datasets, models
 from torch.utils.data import DataLoader
 from torch.cuda.amp import GradScaler, autocast
 import matplotlib.pyplot as plt
+import torch.optim as optim
+import efficientnet_pytorch
 from datetime import datetime
 from tqdm import tqdm
 
-
+class CustomEfficientNet(nn.Module):
+    def __init__(self):
+        super(CustomEfficientNet, self).__init__()
+        self.base_model = efficientnet_pytorch.EfficientNet.from_pretrained(
+            'efficientnet-b0'
+        )
+        self.base_model._fc = nn.Linear(
+            in_features=self.base_model._fc.in_features, 
+            out_features=1, 
+            bias=True
+        )
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x):
+        x = self.base_model(x)
+        x = self.sigmoid(x)
+        return x
 
 config = {
-    "model_name": "swin_v2_b",  # "vit_l_32" or "swin_v2_b"
+    "model_name": "efficientnet_b0",  # "vit_l_32" or "swin_v2_b" or "efficientnet_b0"
+    "scheduler": "multistep", # "none" or "exponential" or "multistep"
     "pretrained": True,         # Set False for training from scratch
-    "data_root": "./Dataset",
-    "batch_size": 16,
-    "num_epochs": 10,
+    "data_root": "../Dataset",
+    "batch_size": 8,            # 16
+    "num_epochs": 1,            # 10
     "learning_rate": 1e-4,
     "gpus": [0],               # Default is GPU 1, change to [0, 1] for both GPUs
     "output_dir": "./results"
@@ -30,6 +49,8 @@ elif config["model_name"] == "swin_v2_b":
     model = models.swin_v2_b(weights=models.Swin_V2_B_Weights.DEFAULT)
     num_features = model.head.in_features
     model.head = nn.Linear(num_features, 1)
+elif config["model_name"] == "efficientnet_b0":
+    model = CustomEfficientNet()
 else:
     raise ValueError("Unsupported model")
 
@@ -57,11 +78,24 @@ criterion = nn.BCEWithLogitsLoss()
 optimizer = optim.Adam(model.parameters(), lr=config["learning_rate"])
 scaler = GradScaler()
 
+# Get scheduler for dynamic learning_rate
+def get_scheduler():
+    if config["scheduler"] == "none":
+        return None
+    elif config["scheduler"] == "exponential":
+        return optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.5) # lr = lr*gamma**epoch
+    elif config["scheduler"] == "multistep":
+        return optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5,8], gamma=0.1)
+    else:
+        raise ValueError("Unsupported scheduler")
+
 # Training and Validation Function
 def train(epoch):
     model.train()
     total_loss, total_correct, total_samples = 0, 0, 0
     progress_bar = tqdm(train_loader, desc=f"Epoch {epoch} [TRAIN]", leave=False)
+    scheduler = get_scheduler()
+    
     for i, (images, labels) in enumerate(progress_bar):
         images, labels = images.to(device), labels.to(device).float()
         labels = labels.unsqueeze(1)
@@ -80,6 +114,10 @@ def train(epoch):
         loss=total_loss/(total_samples/config["batch_size"])
         acc=total_correct/total_samples
         progress_bar.set_postfix(loss=loss, acc=acc)
+
+    # Update scheduler
+    if scheduler is not None:
+        scheduler.step()
 
     avg_loss = total_loss / len(train_loader)
     avg_acc = total_correct / total_samples
