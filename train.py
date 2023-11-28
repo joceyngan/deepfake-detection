@@ -42,15 +42,15 @@ config = {
     "output_dir": "./results"
 }
 
-if config["model_name"] == "vit_l_32":
+if config["model_name"].lower() == "vit_l_32":
     model = models.vit_l_32(weights=models.ViT_L_32_Weights.DEFAULT if config["pretrained"] else None)
     num_features = model.heads.head.in_features
     model.heads.head = nn.Linear(num_features, 1)
-elif config["model_name"] == "swin_v2_b":
+elif config["model_name"].lower() == "swin_v2_b":
     model = models.swin_v2_b(weights=models.Swin_V2_B_Weights.DEFAULT if config["pretrained"] else None)
     num_features = model.head.in_features
     model.head = nn.Linear(num_features, 1)
-elif config["model_name"] == "efficientnet_b0":
+elif config["model_name"].lower() == "efficientnet_b0":
     model = CustomEfficientNet()
 else:
     raise ValueError("Unsupported model")
