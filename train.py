@@ -2,9 +2,11 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms, datasets, models
+from torchvision import datasets, models, transforms
 from torch.utils.data import DataLoader
 from torch.cuda.amp import GradScaler, autocast
+from torchvision import datasets
+from torchvision.datasets import ImageFolder
 import matplotlib.pyplot as plt
 import torch.optim as optim
 import efficientnet_pytorch
@@ -29,16 +31,46 @@ class CustomEfficientNet(nn.Module):
         x = self.sigmoid(x)
         return x
 
+def getmeanstd(dataroot, img_h, img_w,batch_size):
+    transform = transforms.Compose([
+        transforms.Resize((img_h, img_w)),
+        transforms.ToTensor()
+    ])
+    dataset = ImageFolder(dataroot, transform=transform)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+
+    # Initialize the variables for calculating mean and std
+    mean = torch.zeros(3)
+    std = torch.zeros(3)
+    num_images = 0
+
+    # Calculate the mean for each channel
+    for images, _ in data_loader:
+        num_images += images.size(0)
+        mean += torch.mean(images, dim=(0, 2, 3))
+
+    mean /= num_images
+
+    # Calculate the standard deviation for each channel
+    for images, _ in data_loader:
+        std += torch.mean((images - mean.view(1, 3, 1, 1)) ** 2, dim=(0, 2, 3))
+
+    std = torch.sqrt(std / num_images)
+    print("Dataset: ", dataroot)
+    print("Mean values: ", mean)
+    print("Standard deviation values: ", std)
+    return mean, std
+
 config = {
-    "model_name": "efficientnet_b0",  # "vit_l_32" or "swin_v2_b" or "efficientnet_b0"
+    "model_name": "vit_l_32",  # "vit_l_32" or "swin_v2_b" or "efficientnet_b0"
     "criterion": "BCEWithLogitsLoss", # "BCEWithLogitsLoss" or "BCELoss"
-    "scheduler": "multistep", # "none" or "exponential" or "multistep"
+    "scheduler": "exponential", # "none" or "exponential" or "multistep"
     "pretrained": True,         # Set False for training from scratch
     "data_root": "./Dataset",
     "batch_size": 16,            # 16
     "num_epochs": 10,            # 10
-    "learning_rate": 1e-4,
-    "gpus": [0],               # Default is GPU 0, change to [0, 1] for both GPUs
+    "learning_rate": 1e-5,
+    "gpus": [1],               # Default is GPU 0, change to [0, 1] for both GPUs
     "output_dir": "./results"
 }
 
@@ -56,16 +88,31 @@ else:
     raise ValueError("Unsupported model")
 
 # Dataset and DataLoader
-transform = transforms.Compose([
-    # transforms.Resize((317, 317)),
-    transforms.ToTensor()
-])
 
+if config["model_name"].lower()[:3] == "vit":
+    transform = transforms.Compose([
+        transforms.Resize((224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.0291, 0.0269, 0.0253], [0.1319, 0.1239, 0.1194]),
+        # to save computation cost use pre calculated mean and std here, for other datasets use getmeanstd()
+    ])
+else:
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.0291, 0.0269, 0.0253], [0.1319, 0.1239, 0.1194]),
+        # to save computation cost use pre calculated mean and std here, for other datasets use getmeanstd()
+    ])
+"""
+Pre calculated mean and std on provided:
+Mean values:  tensor([0.0291, 0.0269, 0.0253])
+Standard deviation values:  tensor([0.1319, 0.1239, 0.1194])
+([0.0291, 0.0269, 0.0253]),([0.1319, 0.1239, 0.1194])
+"""
 train_dataset = datasets.ImageFolder(os.path.join(config["data_root"], "train"), transform=transform)
 val_dataset = datasets.ImageFolder(os.path.join(config["data_root"], "val"), transform=transform)
 
 train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
+val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=True)
 
 # GPU setup
 device = torch.device(f"cuda:{config['gpus'][0]}" if torch.cuda.is_available() else "cpu")
@@ -75,9 +122,9 @@ if len(config["gpus"]) > 1:
     model = nn.DataParallel(model, device_ids=config["gpus"])
 
 def get_criterion():
-    if config[criterion].lower() == "bcewithlogitsloss":
+    if config["criterion"].lower() == "bcewithlogitsloss":
         return nn.BCEWithLogitsLoss()
-    elif config[criterion].lower() == "bceloss":
+    elif config["criterion"].lower() == "bceloss":
         return nn.BCELoss()
     else:
         raise ValueError("Unsupported loss function")
@@ -201,6 +248,6 @@ plt.plot(train_accs, label='Train Acc')
 plt.plot(val_accs, label='Val Acc')
 plt.title("Training and Validation Accuracy")
 plt.legend()
-
-plt.savefig(os.path.join(output_folder, "{train_name}-metrics.png"))
+filename = "{train_name}-metrics.png"
+plt.savefig(os.path.join(output_folder, filename))
 plt.show()
