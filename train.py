@@ -18,7 +18,7 @@ config = {
     "batch_size": 16,
     "num_epochs": 10,
     "learning_rate": 1e-4,
-    "gpus": [1],               # Default is GPU 1, change to [0, 1] for both GPUs
+    "gpus": [0],               # Default is GPU 1, change to [0, 1] for both GPUs
     "output_dir": "./results"
 }
 
