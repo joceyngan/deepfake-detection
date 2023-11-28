@@ -31,13 +31,14 @@ class CustomEfficientNet(nn.Module):
 
 config = {
     "model_name": "efficientnet_b0",  # "vit_l_32" or "swin_v2_b" or "efficientnet_b0"
+    "criterion": "BCEWithLogitsLoss", # "BCEWithLogitsLoss" or "BCELoss"
     "scheduler": "multistep", # "none" or "exponential" or "multistep"
     "pretrained": True,         # Set False for training from scratch
     "data_root": "./Dataset",
     "batch_size": 16,            # 16
     "num_epochs": 10,            # 10
     "learning_rate": 1e-4,
-    "gpus": [0],               # Default is GPU 1, change to [0, 1] for both GPUs
+    "gpus": [0],               # Default is GPU 0, change to [0, 1] for both GPUs
     "output_dir": "./results"
 }
 
@@ -73,8 +74,16 @@ model.to(device)
 if len(config["gpus"]) > 1:
     model = nn.DataParallel(model, device_ids=config["gpus"])
 
+def get_criterion():
+    if config[criterion].lower() == "bcewithlogitsloss":
+        return nn.BCEWithLogitsLoss()
+    elif config[criterion].lower() == "bceloss":
+        return nn.BCELoss()
+    else:
+        raise ValueError("Unsupported loss function")
+
 # Loss and Optimizer
-criterion = nn.BCEWithLogitsLoss()
+criterion = get_criterion()
 optimizer = optim.Adam(model.parameters(), lr=config["learning_rate"])
 scaler = GradScaler()
 
