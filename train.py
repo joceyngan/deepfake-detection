@@ -33,9 +33,9 @@ config = {
     "model_name": "efficientnet_b0",  # "vit_l_32" or "swin_v2_b" or "efficientnet_b0"
     "scheduler": "multistep", # "none" or "exponential" or "multistep"
     "pretrained": True,         # Set False for training from scratch
-    "data_root": "../Dataset",
-    "batch_size": 8,            # 16
-    "num_epochs": 1,            # 10
+    "data_root": "./Dataset",
+    "batch_size": 16,            # 16
+    "num_epochs": 10,            # 10
     "learning_rate": 1e-4,
     "gpus": [0],               # Default is GPU 1, change to [0, 1] for both GPUs
     "output_dir": "./results"
