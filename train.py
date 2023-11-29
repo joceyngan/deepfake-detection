@@ -31,6 +31,39 @@ class CustomEfficientNet(nn.Module):
         x = self.sigmoid(x)
         return x
 
+class EarlyStopping:
+    def __init__(self, patience=5, delta=0.001, verbose=True):
+        self.patience = patience # Num of epochs to wait
+        self.delta = delta # Minimum change in the monitored quantity to qualify as an improvement.
+        self.verbose = verbose # print message for each validation loss improvement or not
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = float('inf')
+
+    def __call__(self, val_loss, model):
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        if self.verbose:
+            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+        torch.save(model.state_dict(), f'./results/{train_name}/{train_name}-vloss{self.val_loss_min}.pth')
+        self.val_loss_min = val_loss
+
 def getmeanstd(dataroot, img_h, img_w,batch_size):
     transform = transforms.Compose([
         transforms.Resize((img_h, img_w)),
@@ -67,12 +100,18 @@ config = {
     "scheduler": "exponential", # "none" or "exponential" or "multistep"
     "pretrained": True,         # Set False for training from scratch
     "data_root": "./Dataset",
-    "batch_size": 16,            # 16
+    "batch_size": 32,            # 16
     "num_epochs": 10,            # 10
     "learning_rate": 1e-5,
     "gpus": [1],               # Default is GPU 0, change to [0, 1] for both GPUs
-    "output_dir": "./results"
+    "output_dir": "./results",
+    "early_stopping": True,
+    "patience": 5,
+    "delta": 0.001,
+    "es_verbose": True
 }
+
+early_stopper = EarlyStopping(config["patience"], config["delta"], config["es_verbose"])
 
 if config["model_name"].lower() == "vit_l_32":
     model = models.vit_l_32(weights=models.ViT_L_32_Weights.DEFAULT if config["pretrained"] else None)
@@ -227,6 +266,14 @@ for epoch in range(config["num_epochs"]):
     val_losses.append(val_loss)
     val_accs.append(val_acc)
     print(f"Epoch {epoch}: Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}\n")
+    
+    # Update EarlyStopping and check for early stop condition
+    if config["early_stopping"] == True:
+        early_stopper(val_loss, model)
+        if early_stopper.early_stop:
+            print("Early stopping triggered")
+            break
+    
     # Logging
     with open(log_file, "a") as f:
         f.write(f"Epoch {epoch}: Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}\n")
@@ -248,6 +295,6 @@ plt.plot(train_accs, label='Train Acc')
 plt.plot(val_accs, label='Val Acc')
 plt.title("Training and Validation Accuracy")
 plt.legend()
-filename = "{train_name}-metrics.png"
+filename = f"{train_name}-metrics.png"
 plt.savefig(os.path.join(output_folder, filename))
 plt.show()
